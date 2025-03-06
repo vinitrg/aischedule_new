@@ -30,8 +30,8 @@ class AzureOpenAIChat:
             "api-key": self.API_KEY,
         }
         systemPrompt = "Attached is a sheet from a project management software used in the construction industry. WBS1, WBS2, WBS3, WBS4, WBS5, WBS6, WBS7, WBS8, WBS9 represent the hierarchy followed by the software, a row is deemed as an activity when the row has non empty Status value and a non empty Activity Id. Based on the queries, you are required to respond with the activity name." 
-        systemPrompt += "Whenever a query is made, you must always provide the activity name in your response.  Start Date: The date when the activity started or is scheduled to start."
-        systemPrompt += "End Date: The date when the activity ended or is expected to end."
+        systemPrompt += "Whenever a query is made, you must always provide the activity name in your response. StartDate: The date when the activity started or is scheduled to start."
+        systemPrompt += "EndDate: The date when the activity ended or is expected to end."
         systemPrompt += "Progress: The percentage of overall progress for the activity."
         systemPrompt += "Duration: The remaining number of days required to complete the activity."
         systemPrompt += "Activity Id: Represents the code of activity."
