@@ -1,3 +1,5 @@
+.vcscode/
+.vcscode/launch.json
 .venv/
 __pycache__/
 *.pyc

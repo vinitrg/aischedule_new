@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from typing import Optional
 import time
+from database import get_database_connection
 
 def initialize_session_state():
     """Initialize all session state variables."""
@@ -14,6 +15,8 @@ def initialize_session_state():
         st.session_state.processed_excel = ""
     if "file_status" not in st.session_state:
         st.session_state.file_status = None
+    if "data_source" not in st.session_state:
+        st.session_state.data_source = "file"  # 'file' or 'database'
 
 def process_excel_file(file) -> Optional[pd.DataFrame]:
     """
@@ -45,10 +48,23 @@ def process_excel_file(file) -> Optional[pd.DataFrame]:
         # Store the entire DataFrame
         st.session_state.uploaded_data = df
         st.session_state.processed_excel = df.to_string()
-        progress_bar.progress(75)
-        status_text.text("Finalizing...")
-        time.sleep(0.5)
-
+        
+        # Option to save to database
+        if st.checkbox("Save to database for future use?"):
+            status_text.text("Importing to database...")
+            progress_bar.progress(75)
+            
+            # Get database connection and import data
+            db_manager = get_database_connection()
+            if db_manager:
+                if db_manager.import_excel_to_db(df, "activities"):
+                    st.session_state.data_source = "database"
+                    status_text.text("Data saved to database!")
+                else:
+                    status_text.text("Database import failed. Using file data.")
+            else:
+                status_text.text("Database connection failed. Using file data.")
+        
         # Complete the progress bar
         progress_bar.progress(100)
         status_text.text("Processing complete!")
@@ -66,20 +82,97 @@ def process_excel_file(file) -> Optional[pd.DataFrame]:
         st.session_state.file_status = "error"
         return None
 
-def display_sidebar():
-    """Display sidebar with file upload."""
-    with st.sidebar:
-        st.title("File Upload")
+def load_data_from_database() -> Optional[pd.DataFrame]:
+    """
+    Load data from database instead of file.
+    Returns DataFrame if successful, None otherwise.
+    """
+    try:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        uploaded_file = st.file_uploader(
-            "Upload Excel File",
-            type=['xlsx', 'xls'],
-            help="Upload your Excel file containing the project data"
-        )
+        status_text.text("Connecting to database...")
+        progress_bar.progress(25)
+        
+        db_manager = get_database_connection()
+        if not db_manager:
+            raise ConnectionError("Failed to connect to database")
+        
+        progress_bar.progress(50)
+        status_text.text("Fetching data...")
+        
+        # Get all activities from the database
+        df = db_manager.get_activities()
+        
+        progress_bar.progress(75)
+        status_text.text("Processing data...")
+        
+        if df.empty:
+            raise ValueError("No data found in database")
+        
+        # Store the data in session state
+        st.session_state.uploaded_data = df
+        st.session_state.data_source = "database"
+        
+        progress_bar.progress(100)
+        status_text.text("Data loaded!")
+        time.sleep(0.5)
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.success(f"Database data loaded successfully! Found {len(df)} rows and {len(df.columns)} columns.")
+        return df
+        
+    except Exception as e:
+        st.error(f"Error loading data from database: {str(e)}")
+        return None
 
-        if uploaded_file:
-            if st.button("Process File", type="primary"):
-                st.session_state.uploaded_data = process_excel_file(uploaded_file)
+def display_sidebar():
+    """Display sidebar with file upload and database options."""
+    with st.sidebar:
+        st.title("Data Source")
+        
+        # Data source selector
+        data_source = st.radio(
+            "Choose data source",
+            ["Upload Excel File", "Use Database"],
+            index=0 if st.session_state.data_source == "file" else 1,
+            help="Select whether to use an Excel file or connect to database"
+        )
+        
+        if data_source == "Upload Excel File":
+            st.session_state.data_source = "file"
+            
+            uploaded_file = st.file_uploader(
+                "Upload Excel File",
+                type=['xlsx', 'xls'],
+                help="Upload your Excel file containing the project data"
+            )
+
+            if uploaded_file:
+                if st.button("Process File", type="primary"):
+                    st.session_state.uploaded_data = process_excel_file(uploaded_file)
+        else:
+            st.session_state.data_source = "database"
+            
+            # Database connection options
+            st.subheader("Database Connection")
+            
+            use_custom_connection = st.checkbox("Use custom connection string")
+            
+            if use_custom_connection:
+                connection_string = st.text_input(
+                    "Connection String",
+                    value=st.secrets.get("DATABASE_URL", "sqlite:///construction_schedule.db"),
+                    type="password",
+                    help="Database connection string (e.g., sqlite:///db.sqlite, postgresql://user:pass@host/db)"
+                )
+                st.session_state.connection_string = connection_string
+            
+            if st.button("Connect to Database", type="primary"):
+                load_data_from_database()
 
         # Clear Chat Button
         if st.button("Clear Chat History", type="secondary"):

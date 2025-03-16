@@ -2,8 +2,9 @@
 import streamlit as st
 import requests
 import json
-from typing import Iterator
+from typing import Iterator, Dict, Any, List, Optional
 import pandas as pd
+from database import get_database_connection
 
 class AzureOpenAIChat:
     def __init__(self):
@@ -12,6 +13,9 @@ class AzureOpenAIChat:
         
         if not self.API_KEY or not self.API_ENDPOINT:
             raise ValueError("Azure OpenAI API credentials are missing.")
+        
+        # Get database connection if using database
+        self.db_manager = get_database_connection() if st.session_state.data_source == "database" else None
 
     def generate_response_stream(self, query: str) -> Iterator[str]:
         headers = {
@@ -19,17 +23,30 @@ class AzureOpenAIChat:
             "api-key": self.API_KEY,
         }
 
-        # Create comprehensive system prompt with Excel data
+        # Create comprehensive system prompt with data context
         system_prompt = self._create_system_prompt()
         
-        # Combine the user's query with Excel data context
-        enhanced_query = self._enhance_query_with_context(query)
+        # Use agent approach to decide which functions to call
+        function_calls, function_responses = self._analyze_query_for_functions(query)
+        
+        # Combine the user's query with context from function calls
+        enhanced_query = self._enhance_query_with_context(query, function_responses)
+
+        # Add function call results to the messages
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": enhanced_query}
+        ]
+        
+        # Add function call results if any
+        if function_responses:
+            function_context = "I've analyzed the data and found the following information:\n\n"
+            for func_name, result in function_responses.items():
+                function_context += f"From {func_name}:\n{result}\n\n"
+            messages.append({"role": "system", "content": function_context})
 
         data = {
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": enhanced_query}
-            ],
+            "messages": messages,
             "temperature": 0.7,
             "stream": True
         }
@@ -62,37 +79,157 @@ class AzureOpenAIChat:
             raise RuntimeError(f"API error: {str(e)}")
 
     def _create_system_prompt(self) -> str:
-        """Create a detailed system prompt including Excel data context."""
-        if 'uploaded_data' not in st.session_state:
-            return "You are a project management assistant. No data is currently loaded."
+        """Create a detailed system prompt including data context."""
+        if st.session_state.data_source == "database" and self.db_manager:
+            # Get summary data from database
+            try:
+                progress_summary = self.db_manager.get_progress_summary()
+                progress_summary_str = progress_summary.to_string() if not progress_summary.empty else "No data available"
+                
+                return f"""You are a construction project management AI assistant analyzing a database of project activities.
 
-        df = st.session_state.uploaded_data
-        
-        # Get all unique activities
-        activities = df[['Activity Id', 'Status', 'Progress']].to_dict('records')
-        activities_str = "\n".join([
-            f"Activity {a['Activity Id']}: Status={a['Status']}, Progress={a['Progress']}%"
-            for a in activities
-        ])
+Database Context:
+- The database contains construction schedule data with activities, their statuses, and progress.
+- Each activity has an Activity ID, Status, Progress, StartDate, EndDate, and Duration.
+- The project is organized in a WBS (Work Breakdown Structure) hierarchy (WBS1-WBS9).
 
-        prompt = f"""You are analyzing a construction project management sheet with the following data:
+Project Summary Statistics:
+{progress_summary_str}
+
+Guidelines:
+1. Always refer to specific Activity IDs in your responses when applicable
+2. Use the data from the database to provide accurate, data-driven responses
+3. If the user asks about a specific activity or status, I will query the database for that information
+4. If you need more specific data than what's in the context, mention that you need to query the database
+
+I can perform database queries to get more detailed information as needed."""
+            except Exception as e:
+                st.error(f"Error getting database summary: {str(e)}")
+                return "You are a construction project management AI assistant. The database connection is currently having issues."
+        else:
+            # Use Excel data context
+            if 'uploaded_data' not in st.session_state or st.session_state.uploaded_data is None:
+                return "You are a project management assistant. No data is currently loaded."
+    
+            df = st.session_state.uploaded_data
+            
+            # Get basic statistics
+            activities_count = len(df)
+            columns = ', '.join(df.columns)
+            
+            # Get activity summary if columns exist
+            activities_str = ""
+            if all(col in df.columns for col in ['Activity Id', 'Status', 'Progress']):
+                activities = df[['Activity Id', 'Status', 'Progress']].head(5).to_dict('records')
+                activities_str = "\nSample Activities:\n" + "\n".join([
+                    f"Activity {a.get('Activity Id', 'Unknown')}: Status={a.get('Status', 'Unknown')}, Progress={a.get('Progress', 'Unknown')}%"
+                    for a in activities
+                ]) + "\n(showing 5 of " + str(activities_count) + " activities)"
+    
+            prompt = f"""You are analyzing a construction project management sheet with the following data:
 
 Excel Data Context:
+- The file contains {activities_count} activities
+- Columns include: {columns}
 {activities_str}
 
 Guidelines:
-1. Always refer to specific Activity IDs in your responses
-2. Each activity has Status, Progress, and Duration
-3. WBS1 to WBS9 represent the hierarchy
+1. Always refer to specific Activity IDs in your responses when applicable
+2. Each activity typically has Status, Progress, and Duration
+3. WBS1 to WBS9 typically represent the hierarchy in construction schedules
 4. Activities with non-empty Status and Activity Id are valid tasks
 5. Include exact values from the data in your responses
 
 Please provide specific, data-driven responses based on this Excel data."""
+    
+            return prompt
 
-        return prompt
+    def _analyze_query_for_functions(self, query: str) -> tuple[List[str], Dict[str, Any]]:
+        """
+        Analyze the query to determine which database functions to call.
+        Returns list of function names and their results.
+        """
+        function_calls = []
+        function_results = {}
+        
+        # Skip if not using database or no DB manager
+        if st.session_state.data_source != "database" or not self.db_manager:
+            return function_calls, function_results
+        
+        # Check for activity ID patterns (A123, Task-456, etc.)
+        import re
+        activity_id_patterns = re.findall(r'([A-Z]-\d+|\b[A-Z]\d+\b|Task-\d+)', query, re.IGNORECASE)
+        
+        for activity_id in activity_id_patterns:
+            function_calls.append("get_activity_by_id")
+            try:
+                result = self.db_manager.get_activity_by_id(activity_id)
+                if not result.empty:
+                    function_results["get_activity_by_id"] = f"Activity {activity_id}:\n{result.to_string()}"
+            except Exception as e:
+                st.warning(f"Failed to get activity {activity_id}: {str(e)}")
+        
+        # Check for status queries
+        status_keywords = {
+            "completed": "Completed",
+            "in progress": "In Progress",
+            "not started": "Not Started",
+            "delayed": "Delayed",
+            "on hold": "On Hold"
+        }
+        
+        for keyword, status in status_keywords.items():
+            if keyword.lower() in query.lower():
+                function_calls.append("get_activities_by_status")
+                try:
+                    result = self.db_manager.get_activities_by_status(status)
+                    if not result.empty:
+                        count = len(result)
+                        function_results["get_activities_by_status"] = f"{count} activities with status '{status}'"
+                        # Add sample of activities
+                        if count > 0:
+                            sample = result.head(3)
+                            function_results["get_activities_by_status"] += f"\nSample activities: {sample['Activity Id'].tolist()}"
+                except Exception as e:
+                    st.warning(f"Failed to get activities with status {status}: {str(e)}")
+        
+        # Check for timeline/schedule queries
+        timeline_keywords = ["timeline", "schedule", "gantt", "when", "start date", "end date", "duration"]
+        if any(keyword in query.lower() for keyword in timeline_keywords):
+            function_calls.append("get_schedule_timeline")
+            try:
+                result = self.db_manager.get_schedule_timeline()
+                if not result.empty:
+                    earliest = result["StartDate"].min() if "StartDate" in result.columns else "Unknown"
+                    latest = result["EndDate"].max() if "EndDate" in result.columns else "Unknown"
+                    function_results["get_schedule_timeline"] = f"Project timeline: {earliest} to {latest}"
+                    # Add activities on critical path or with longest duration
+                    if "Duration" in result.columns:
+                        longest = result.nlargest(3, "Duration")
+                        function_results["get_schedule_timeline"] += f"\nLongest activities: {longest['Activity Id'].tolist()}"
+            except Exception as e:
+                st.warning(f"Failed to get schedule timeline: {str(e)}")
+        
+        # Check for progress/status summary
+        summary_keywords = ["summary", "overview", "progress", "status summary", "overall"]
+        if any(keyword in query.lower() for keyword in summary_keywords):
+            function_calls.append("get_progress_summary")
+            try:
+                result = self.db_manager.get_progress_summary()
+                if not result.empty:
+                    function_results["get_progress_summary"] = f"Progress summary:\n{result.to_string()}"
+            except Exception as e:
+                st.warning(f"Failed to get progress summary: {str(e)}")
+        
+        return function_calls, function_results
 
-    def _enhance_query_with_context(self, query: str) -> str:
+    def _enhance_query_with_context(self, query: str, function_results: Dict[str, Any] = None) -> str:
         """Enhance the user query with relevant data context."""
+        if st.session_state.data_source == "database":
+            # For database mode, we've already fetched function results
+            return query
+        
+        # For file mode, enhance with Excel data context
         if 'uploaded_data' not in st.session_state:
             return query
 
@@ -100,20 +237,25 @@ Please provide specific, data-driven responses based on this Excel data."""
         relevant_context = ""
 
         # Add activity IDs context if query mentions specific activities
-        if any(id_ref in query.lower() for id_ref in ['activity', 'task', 'id', 'a10']):
-            activity_ids = df['Activity Id'].unique()
-            relevant_context += f"\nAvailable Activity IDs: {', '.join(activity_ids)}"
+        if any(id_ref in query.lower() for id_ref in ['activity', 'task', 'id']):
+            if "Activity Id" in df.columns:
+                activity_ids = df['Activity Id'].unique()[:10]  # Limit to first 10
+                relevant_context += f"\nAvailable Activity IDs: {', '.join(map(str, activity_ids))}"
+                if len(df['Activity Id'].unique()) > 10:
+                    relevant_context += f" (showing 10 of {len(df['Activity Id'].unique())})"
 
         # Add status context if query mentions status
-        if 'status' in query.lower():
+        if 'status' in query.lower() and "Status" in df.columns:
             status_summary = df['Status'].value_counts().to_dict()
             relevant_context += f"\nStatus Summary: {status_summary}"
 
         # Add progress context if query mentions progress
-        if 'progress' in query.lower():
+        if 'progress' in query.lower() and "Progress" in df.columns:
             progress_avg = df['Progress'].mean()
             relevant_context += f"\nAverage Progress: {progress_avg:.1f}%"
 
         # Combine original query with context
-        enhanced_query = f"{query}\n\nRelevant Data Context:{relevant_context}"
-        return enhanced_query
+        if relevant_context:
+            enhanced_query = f"{query}\n\nRelevant Data Context:{relevant_context}"
+            return enhanced_query
+        return query
