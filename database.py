@@ -262,14 +262,17 @@ def get_database_connection() -> DatabaseManager:
         st.write(f"- {table}")
     for table in tables:
         st.write(f"- {table}")
+    st.write("I've given you tables")
     if "db_manager" not in st.session_state:
         # Initialize DB connection
-        
+        st.write("I've given you tables 1")
         db_manager = DatabaseManager()
         if db_manager.connect():
             st.session_state.db_manager = db_manager
+            st.write("I'm in connect")
         else:
+            st.write("I'm not in connect")
             st.error("Failed to connect to database. Check your connection settings.")
             return None
-    
+    st.write("I've given you tables3")
     return st.session_state.db_manager
