@@ -242,37 +242,15 @@ def get_database_connection() -> DatabaseManager:
     Returns:
         DatabaseManager instance
     """
-    # Create an instance of your database manager
-    db_manager = DatabaseManager()
-    db_manager.connect()
-    # Create an inspector using sqlalchemy's inspect function
-    inspector = inspect(db_manager.engine)
-    
-    # Get database name (extract from the URL)
-    db_url = str(db_manager.engine.url)
-    db_name = db_url.split("/")[-1].split("?")[0]
-    
-    # Get table names
-    tables = inspector.get_table_names()
-    
-    # Display information
-    st.write(f"Database: {db_name}")
-    st.write("Tables:")
-    for table in tables:
-        st.write(f"- {table}")
-    for table in tables:
-        st.write(f"- {table}")
-    st.write("I've given you tables")
     if "db_manager" not in st.session_state:
         # Initialize DB connection
         st.write("I've given you tables 1")
         db_manager = DatabaseManager()
         if db_manager.connect():
             st.session_state.db_manager = db_manager
-            st.write("I'm in connect")
+           
         else:
-            st.write("I'm not in connect")
             st.error("Failed to connect to database. Check your connection settings.")
             return None
-    st.write("I've given you tables3")
+    
     return st.session_state.db_manager

@@ -47,12 +47,11 @@ def main():
     st.title("🏗️ Construction Schedule Assistant")
     st.write("""
     This app helps you analyze and query your construction schedule data using natural language.
-    Upload an Excel file or connect to a database to get started. GRrrrr
+    Upload an Excel file or connect to a database to get started.
     """)
 
     # Display sidebar with file upload or database connection
     display_sidebar()
-    st.write("Debug point reached")
 
     # Display main content area
     display_main_content()

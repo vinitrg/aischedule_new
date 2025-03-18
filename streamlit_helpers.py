@@ -132,47 +132,25 @@ def load_data_from_database() -> Optional[pd.DataFrame]:
 def display_sidebar():
     """Display sidebar with file upload and database options."""
     with st.sidebar:
-        st.title("Data Source")
+       
+        st.session_state.data_source = "database"
         
-        # Data source selector
-        data_source = st.radio(
-            "Choose data source",
-            ["Upload Excel File", "Use Database"],
-            index=0 if st.session_state.data_source == "file" else 1,
-            help="Select whether to use an Excel file or connect to database"
-        )
+        # Database connection options
+        st.subheader("Database Connection")
         
-        if data_source == "Upload Excel File":
-            st.session_state.data_source = "file"
-            
-            uploaded_file = st.file_uploader(
-                "Upload Excel File",
-                type=['xlsx', 'xls'],
-                help="Upload your Excel file containing the project data"
+        use_custom_connection = st.checkbox("Use custom connection string")
+        
+        if use_custom_connection:
+            connection_string = st.text_input(
+                "Connection String",
+                value=st.secrets.get("DATABASE_URL", "sqlite:///construction_schedule.db"),
+                type="password",
+                help="Database connection string (e.g., sqlite:///db.sqlite, postgresql://user:pass@host/db)"
             )
-
-            if uploaded_file:
-                if st.button("Process File", type="primary"):
-                    st.session_state.uploaded_data = process_excel_file(uploaded_file)
-        else:
-            st.session_state.data_source = "database"
-            
-            # Database connection options
-            st.subheader("Database Connection")
-            
-            use_custom_connection = st.checkbox("Use custom connection string")
-            
-            if use_custom_connection:
-                connection_string = st.text_input(
-                    "Connection String",
-                    value=st.secrets.get("DATABASE_URL", "sqlite:///construction_schedule.db"),
-                    type="password",
-                    help="Database connection string (e.g., sqlite:///db.sqlite, postgresql://user:pass@host/db)"
-                )
-                st.session_state.connection_string = connection_string
-            
-            if st.button("Connect to Database", type="primary"):
-                load_data_from_database()
+            st.session_state.connection_string = connection_string
+        
+        if st.button("Connect to Database", type="primary"):
+            load_data_from_database()
 
         # Clear Chat Button
         if st.button("Clear Chat History", type="secondary"):

@@ -37,7 +37,7 @@ class AzureOpenAIChat:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": enhanced_query}
         ]
-        
+        st.write(enhanced_query)
         # Add function call results if any
         if function_responses:
             function_context = "I've analyzed the data and found the following information:\n\n"
@@ -93,56 +93,27 @@ Database Context:
 - Each activity has an Activity ID, Status, Progress, StartDate, EndDate, and Duration.
 - The project is organized in a WBS (Work Breakdown Structure) hierarchy (WBS1-WBS9).
 
+IMPORTANT HIERARCHY UNDERSTANDING:
+- Activities without a Status assigned are WBS (Work Breakdown Structure) parent items
+- WBS parents group and organize actual activities
+- Only items with a Status are actual activities that have work associated with them
+- Parent WBS items contain child activities and their progress is derived from their children
+
 Project Summary Statistics:
 {progress_summary_str}
 
 Guidelines:
 1. Always refer to specific Activity IDs in your responses when applicable
-2. Use the data from the database to provide accurate, data-driven responses
-3. If the user asks about a specific activity or status, I will query the database for that information
-4. If you need more specific data than what's in the context, mention that you need to query the database
+2. Distinguish between WBS parent items (no Status) and actual activities (with Status)
+3. Use the data from the database to provide accurate, data-driven responses
+4. If the user asks about a specific activity or status, I will query the database for that information
+5. If you need more specific data than what's in the context, mention that you need to query the database
 
 I can perform database queries to get more detailed information as needed."""
             except Exception as e:
                 st.error(f"Error getting database summary: {str(e)}")
                 return "You are a construction project management AI assistant. The database connection is currently having issues."
-        else:
-            # Use Excel data context
-            if 'uploaded_data' not in st.session_state or st.session_state.uploaded_data is None:
-                return "You are a project management assistant. No data is currently loaded."
     
-            df = st.session_state.uploaded_data
-            
-            # Get basic statistics
-            activities_count = len(df)
-            columns = ', '.join(df.columns)
-            
-            # Get activity summary if columns exist
-            activities_str = ""
-            if all(col in df.columns for col in ['Activity Id', 'Status', 'Progress']):
-                activities = df[['Activity Id', 'Status', 'Progress']].head(5).to_dict('records')
-                activities_str = "\nSample Activities:\n" + "\n".join([
-                    f"Activity {a.get('Activity Id', 'Unknown')}: Status={a.get('Status', 'Unknown')}, Progress={a.get('Progress', 'Unknown')}%"
-                    for a in activities
-                ]) + "\n(showing 5 of " + str(activities_count) + " activities)"
-    
-            prompt = f"""You are analyzing a construction project management sheet with the following data:
-
-Excel Data Context:
-- The file contains {activities_count} activities
-- Columns include: {columns}
-{activities_str}
-
-Guidelines:
-1. Always refer to specific Activity IDs in your responses when applicable
-2. Each activity typically has Status, Progress, and Duration
-3. WBS1 to WBS9 typically represent the hierarchy in construction schedules
-4. Activities with non-empty Status and Activity Id are valid tasks
-5. Include exact values from the data in your responses
-
-Please provide specific, data-driven responses based on this Excel data."""
-    
-            return prompt
 
     def _analyze_query_for_functions(self, query: str) -> tuple[List[str], Dict[str, Any]]:
         """
