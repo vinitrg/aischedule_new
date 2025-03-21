@@ -91,7 +91,7 @@ class AzureOpenAIChat:
 Database Context:
 - The database contains construction schedule data with activities, their statuses, and progress.
 - Each activity has an Activity ID, Status, Progress, StartDate, EndDate, and Duration.
-- The project is organized in a WBS (Work Breakdown Structure) hierarchy (WBS1-WBS9).
+- The project is organized in a WBS (Work Breakdown Structure) hierarchy (WBS1-WBS9) and WBS does not have a Status assigned
 
 IMPORTANT HIERARCHY UNDERSTANDING:
 - Activities without a Status assigned are WBS (Work Breakdown Structure) parent items
