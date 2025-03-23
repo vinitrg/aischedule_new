@@ -1,9 +1,5 @@
 streamlit
 pandas
-watchdog
-requests
-sqlalchemy
-psycopg2-binary
-pymysql
-openpyxl
-python-dotenv
+pymssql
+openai
+plotly
